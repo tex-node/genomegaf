@@ -39,18 +39,43 @@ _args = None  # set in main(), read by run_one()/cross_check_with_yahoo()
 # Deliberately smaller than validation.default_param_grid() to keep the
 # full 5-instrument run tractable; widen this once you've seen which
 # region of parameter space is promising.
-PARAM_GRID = [
-    dict(window=w, horizon=h, threshold=t)
-    for w in (10, 20)
-    for h in (5, 10)
-    for t in (0.90, 0.95)
-]
+#
+# Thresholds are lower for 'enhanced' than 'baseline' on purpose: splitting
+# the pattern DB across 9 regime buckets cuts the candidate pool for any
+# given query by roughly 9x, so the same 0.90-0.95 threshold that worked
+# unfiltered starved most instruments to 0-10 active signals in the first
+# enhanced H1 run. 0.95 is dropped entirely for 'enhanced' since it's
+# strictly more restrictive than 0.90, which already produced zero
+# signals for 3 of 5 instruments.
+PARAM_GRID_BY_FEATURE_SET = {
+    "baseline": [
+        dict(window=w, horizon=h, threshold=t)
+        for w in (10, 20) for h in (5, 10) for t in (0.90, 0.95)
+    ],
+    "enhanced": [
+        dict(window=w, horizon=h, threshold=t)
+        for w in (10, 20) for h in (5, 10) for t in (0.75, 0.80, 0.85, 0.90)
+    ],
+}
+
+# Feature sets ported from the v2 experiment (rank normalization, regime
+# filtering, recency-decay weighting). 'baseline' matches GAFIndicatorConfig's
+# own defaults exactly, so it's identical to the original H1/M15/D1 runs.
+FEATURE_SETS = {
+    "baseline": dict(),
+    "enhanced": dict(
+        normalization="rank", rank_lookback=252,
+        use_regime_filter=True, trend_lookback=50, vol_lookback=100,
+        recency_halflife=500,
+    ),
+}
 
 
-def make_cfg(window, horizon, threshold, base):
+def make_cfg(window, horizon, threshold, base, extra=None):
     return GAFIndicatorConfig(window=window, atr_period=base.atr_period, horizon=horizon,
                                method=base.method, similarity_threshold=threshold,
-                               min_matches=base.min_matches, max_db_size=base.max_db_size)
+                               min_matches=base.min_matches, max_db_size=base.max_db_size,
+                               **(extra or {}))
 
 
 def fmt_pct(x):
@@ -108,7 +133,10 @@ def run_one(keyword: str, report_lines: list):
 
     dev_end = int(n * DEV_FRAC)
     base_cfg = GAFIndicatorConfig()
-    grid = [make_cfg(g["window"], g["horizon"], g["threshold"], base_cfg) for g in PARAM_GRID]
+    extra = FEATURE_SETS[_args.feature_set]
+    param_grid = PARAM_GRID_BY_FEATURE_SET[_args.feature_set]
+    grid = [make_cfg(g["window"], g["horizon"], g["threshold"], base_cfg, extra) for g in param_grid]
+    report_lines.append(f"- Feature set: **{_args.feature_set}** ({extra or 'library defaults'})\n")
 
     print(f"Selecting config via {CV_FOLDS}-fold walk-forward CV on first {dev_end} bars (development slice)...")
     t0 = time.time()
@@ -200,14 +228,17 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--timeframe", choices=["M15", "H1", "D1"], default="H1")
     parser.add_argument("--bars", type=int, default=8000, help="max bars to request from MT5")
+    parser.add_argument("--feature-set", choices=list(FEATURE_SETS.keys()), default="baseline")
     parser.add_argument("--out-prefix", default="VALIDATION_REPORT",
-                         help="output files: <prefix>_<timeframe>.md and best_configs_<timeframe>.json")
+                         help="output files: <prefix>_<timeframe>[_<feature-set>].md")
     _args = parser.parse_args()
+    _args.out_prefix = _args.out_prefix if _args.feature_set == "baseline" else f"{_args.out_prefix}_{_args.feature_set}"
 
     report_lines = [
-        f"# Validation report — GenomeGAF ({_args.timeframe})\n\n",
+        f"# Validation report — GenomeGAF ({_args.timeframe}, {_args.feature_set} feature set)\n\n",
         f"Generated {time.strftime('%Y-%m-%d %H:%M UTC', time.gmtime())}. "
-        f"Timeframe: {_args.timeframe}. Bar budget: {_args.bars}. "
+        f"Timeframe: {_args.timeframe}. Feature set: {_args.feature_set} "
+        f"({FEATURE_SETS[_args.feature_set] or 'library defaults'}). Bar budget: {_args.bars}. "
         f"Development/holdout split: {int(DEV_FRAC*100)}/{int((1-DEV_FRAC)*100)}. "
         f"Walk-forward CV folds: {CV_FOLDS}. Monte Carlo sims: {MC_SIMS}.\n\n",
         "**Methodology:** for each instrument, the first "
@@ -271,7 +302,8 @@ def main():
         }
         for r in results
     }
-    config_path = f"best_configs_{_args.timeframe}.json"
+    config_path = f"best_configs_{_args.timeframe}.json" if _args.feature_set == "baseline" \
+        else f"best_configs_{_args.feature_set}_{_args.timeframe}.json"
     with open(config_path, "w", encoding="utf-8") as f:
         json.dump(best_configs, f, indent=2, default=lambda x: None if isinstance(x, float) and np.isnan(x) else x)
     print(f"Wrote {config_path} (consumed by live_signal.py)")

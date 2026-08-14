@@ -7,15 +7,46 @@ projection.
 
 ## Files
 
-- `gaf_core.py` — normalization, GAF encoding, fingerprint extraction
-- `pattern_db.py` — rolling fingerprint database + vectorized similarity search
-- `projection.py` — forward-return statistics and confidence scoring
+- `gaf_core.py` — normalization (ATR and rank/quantile variants), GAF encoding, fingerprint extraction
+- `regime.py` — trend×volatility regime labeling, for regime-conditional pattern matching
+- `pattern_db.py` — rolling fingerprint database + vectorized similarity search (optionally regime-filtered)
+- `projection.py` — forward-return statistics, confidence scoring, recency-decay weighting, skew
 - `gaf_indicator.py` — stateful `GAFIndicator` class, one `on_bar()` call per closed bar
 - `data_loader.py` — CSV loader for real OHLC data (MT5 exports and plain high/low/close CSVs)
+- `mt5_feed.py` / `yahoo_feed.py` — real market data connectors (read-only; no order placement anywhere)
+- `validation.py` / `run_validation.py` — walk-forward CV, holdout evaluation, transaction costs,
+  significance testing against real MT5 history — see `VALIDATION_REPORT.md`
+- `live_signal.py` — signals-only live watcher (prints/logs; never places an order)
 - `demo.py` — synthetic-data smoke test + backtest + visualizations (`--csv path.csv` to use real data)
 - `web/dashboard.html` — self-contained, in-browser reimplementation of the whole pipeline for
   interactive testing (no Python required) — see below
 - `PORTING_NOTES.md` — what changes when you port this to MQL5
+
+## v2 review — rank normalization, regime filtering, recency decay
+
+A separate Claude session (working from an earlier fork of this code, before
+the look-ahead-bug fix and the MT5 validation pipeline existed here) added
+four features on top of the original prototype: rank/quantile normalization
+as an alternative to ATR division, regime-conditional pattern matching
+(9-state trend×volatility buckets), recency-decay weighted statistics, and
+return-distribution skew. The ideas were sound and the session was
+appropriately skeptical of its own results (it ran an 8-seed synthetic
+comparison rather than trusting one favorable run, and caught a real bug
+mid-build). But its own backtest loop still had the same-bar look-ahead bug
+this repo already fixed, and it was never tested against real market data.
+
+Those four features have been ported into this repo's validated codebase
+(`gaf_core.rank_normalize_series`, `regime.py`, the regime filter in
+`pattern_db.PatternDB.query()`, and the recency/skew additions in
+`projection.py`) — keeping this repo's `learn`-flag true walk-forward
+freeze rather than the fork's leakier "burn-in" approach — and tested the
+same rigorous way as the rest of this project:
+`py run_validation.py --feature-set enhanced`. See `VALIDATION_REPORT.md`'s
+"Round 2" section for the result: more interesting than the plain baseline
+(the first batch of nominally p<0.05 results in this project), but none of
+them survive even a simple correction for running 5 tests in one batch —
+encouraging enough to warrant one more independent check, not yet enough
+to trade.
 
 ## Interactive testing dashboard
 

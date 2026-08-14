@@ -7,10 +7,13 @@ Core signal-processing primitives for the GAF pattern-recognition engine:
 
 All functions are pure numpy and vectorized so they map cleanly onto
 MQL5 arrays later (no hidden Python-only tricks like pandas rolling
-apply with lambdas).
+apply with lambdas) — except rank_normalize_series(), which uses
+pandas.Series.rolling().rank() for convenience; porting that one needs a
+rolling-window percentile-rank loop instead (see PORTING_NOTES.md).
 """
 
 import numpy as np
+import pandas as pd
 
 
 def atr(high: np.ndarray, low: np.ndarray, close: np.ndarray, period: int = 14) -> np.ndarray:
@@ -56,6 +59,40 @@ def normalize_series(close: np.ndarray, high: np.ndarray, low: np.ndarray,
     with np.errstate(divide="ignore", invalid="ignore"):
         x = log_ret / atr_vals
     return x
+
+
+def rank_normalize_series(close: np.ndarray, lookback: int = 252) -> np.ndarray:
+    """
+    Step 1 — Pre-Processing & Normalization (rank / empirical-CDF variant).
+
+    x_t = 2 * (rolling_percentile_rank(log_return_t, lookback) / (lookback+1)) - 1
+
+    Alternative to ATR division: maps each log return to its percentile
+    position within the trailing `lookback` window, then rescales that
+    percentile to [-1, 1]. This is rank-aware, not magnitude-aware: it's
+    automatically robust to fat tails and skew, and it doesn't need a
+    separate ATR calculation feeding into it. It's also self-bounded — no
+    min-max/clamp step is needed downstream, unlike the ATR variant.
+
+    Trade-off: needs `lookback` bars of history before it produces a
+    value (vs. `atr_period` for the ATR variant), and it's relative to
+    the trailing window's own distribution — a genuinely new regime
+    (never-before-seen volatility) still gets squeezed into [-1, 1] the
+    same as everything else, since rank has no notion of "how new is
+    this."
+    """
+    close = np.asarray(close, dtype=float)
+    log_ret = np.empty_like(close)
+    log_ret[0] = np.nan
+    log_ret[1:] = np.log(close[1:] / close[:-1])
+
+    ranks = (
+        pd.Series(log_ret)
+        .rolling(window=lookback, min_periods=lookback)
+        .rank(pct=True)
+        .to_numpy()
+    )
+    return 2.0 * ranks - 1.0
 
 
 def _rescale(x: np.ndarray, k: float = 1.0, mode: str = "minmax") -> np.ndarray:

@@ -4,3 +4,4 @@ __pycache__/
 validation_run*.log
 TEST_REPORT_*.md
 signals_log.csv
+v2/

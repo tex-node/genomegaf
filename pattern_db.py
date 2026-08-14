@@ -12,6 +12,13 @@ Design notes:
 - A match is only usable for projection once its forward outcome (h bars
   later) is actually known. `usable_matches()` enforces that so you never
   leak future information into a live signal.
+- Every record can also carry a regime label (see regime.py). Matching
+  within the current regime only (rather than across all history) avoids
+  diluting the forward-return signal with episodes from a structurally
+  different market — e.g. a bullish-resolving pattern match from a 2021
+  uptrend isn't necessarily informative during 2023 chop, even if the GAF
+  shape matches closely. Pass regime=None (default) to search all history
+  unfiltered, same as before this was added.
 """
 
 from dataclasses import dataclass, field
@@ -25,6 +32,7 @@ class PatternDB:
     fingerprints: np.ndarray = field(init=False, repr=False)
     bar_indices: np.ndarray = field(init=False, repr=False)
     closes: np.ndarray = field(init=False, repr=False)
+    regimes: np.ndarray = field(init=False, repr=False)
     _count: int = field(default=0, init=False)
 
     def __post_init__(self):
@@ -32,11 +40,12 @@ class PatternDB:
         self.fingerprints = np.zeros((cap, self.fingerprint_len), dtype=np.float32)
         self.bar_indices = np.zeros(cap, dtype=np.int64)
         self.closes = np.zeros(cap, dtype=np.float64)
+        self.regimes = np.full(cap, -1, dtype=np.int32)
 
     def __len__(self):
         return self._count
 
-    def add(self, fingerprint: np.ndarray, bar_index: int, close: float):
+    def add(self, fingerprint: np.ndarray, bar_index: int, close: float, regime: int = -1):
         """Append one fingerprint record. Overwrites oldest slot when full
         (ring buffer), so memory stays bounded during live trading."""
         norm = np.linalg.norm(fingerprint)
@@ -46,32 +55,40 @@ class PatternDB:
         self.fingerprints[slot] = unit_fp
         self.bar_indices[slot] = bar_index
         self.closes[slot] = close
+        self.regimes[slot] = regime
         self._count += 1
 
     def _active_view(self):
         """Return the populated slice of the ring buffer, oldest-first."""
         n = min(self._count, len(self.fingerprints))
         if self._count <= len(self.fingerprints):
-            return (self.fingerprints[:n], self.bar_indices[:n], self.closes[:n])
+            return (self.fingerprints[:n], self.bar_indices[:n], self.closes[:n], self.regimes[:n])
         # wrapped: reorder so it's chronological
         start = self._count % len(self.fingerprints)
         idx = np.concatenate([np.arange(start, len(self.fingerprints)), np.arange(0, start)])
-        return (self.fingerprints[idx], self.bar_indices[idx], self.closes[idx])
+        return (self.fingerprints[idx], self.bar_indices[idx], self.closes[idx], self.regimes[idx])
 
     def query(self, live_fingerprint: np.ndarray, current_bar: int,
-              horizon: int, top_k: int = None, threshold: float = 0.95):
+              horizon: int, top_k: int = None, threshold: float = 0.95,
+              regime: int = None):
         """
         Step 4 — Similarity Matching, restricted to entries whose forward
         outcome (current_bar - bar_index >= horizon) is already realized.
 
+        regime: if given, only matches sharing this regime label are
+        considered (see regime.py). Pass None (default) to search all
+        history regardless of regime.
+
         Returns a structured array of matches sorted by similarity desc:
         [(bar_index, similarity, close)]
         """
-        fps, bar_idx, closes = self._active_view()
+        fps, bar_idx, closes, regimes = self._active_view()
         if len(fps) == 0:
             return []
 
         usable = (current_bar - bar_idx) >= horizon
+        if regime is not None:
+            usable &= (regimes == regime)
         if not usable.any():
             return []
 
