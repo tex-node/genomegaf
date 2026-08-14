@@ -1,14 +1,15 @@
 """
 run_validation.py
-Driver: for each configured instrument, pull real H1 history from MT5
+Driver: for each configured instrument, pull real historical data from MT5
 (cross-checked against Yahoo Finance), run parameter selection via
 walk-forward cross-validation on a development slice, evaluate the chosen
 config exactly once on an untouched holdout slice, run statistical
-significance tests, and write everything to VALIDATION_REPORT.md.
+significance tests, and write everything to a report file.
 
-Run: py run_validation.py
+Run: py run_validation.py [--timeframe H1|M15|D1] [--bars 8000] [--out-prefix VALIDATION_REPORT]
 """
 
+import argparse
 import json
 import sys
 import time
@@ -25,7 +26,6 @@ from validation import (
 )
 
 INSTRUMENTS = ["US500", "US100", "DJIA", "EURUSD", "XAUUSD"]
-TIMEFRAME = "H1"
 DEV_FRAC = 0.6           # first 60% of history: parameter selection only
 CV_FOLDS = 3
 MC_SIMS = 2000
@@ -33,6 +33,8 @@ FALLBACK_COST_FRAC = {   # used only if MT5 reports a zero/stale spread
     "US500": 0.0004, "US100": 0.0004, "DJIA": 0.0004,
     "EURUSD": 0.00006, "XAUUSD": 0.0004,
 }
+
+_args = None  # set in main(), read by run_one()/cross_check_with_yahoo()
 
 # Deliberately smaller than validation.default_param_grid() to keep the
 # full 5-instrument run tractable; widen this once you've seen which
@@ -59,14 +61,18 @@ def fmt(x, nd=3):
     return "n/a" if x is None or (isinstance(x, float) and np.isnan(x)) else f"{x:.{nd}f}"
 
 
+YAHOO_PERIOD = {"M15": "60d", "H1": "730d", "D1": "max"}
+_ALIGN_BUCKET = {"M15": 900, "H1": 3600, "D1": 86400}
+
+
 def cross_check_with_yahoo(keyword, mt5_bars):
     try:
-        yh = yahoo_feed.fetch_history(keyword, TIMEFRAME)
+        yh = yahoo_feed.fetch_history(keyword, _args.timeframe, period=YAHOO_PERIOD[_args.timeframe])
     except Exception as e:
         return f"Yahoo cross-check failed: {e}"
-    # Align on overlapping hourly timestamps (rounded to the hour) and compare returns.
-    mt5_t = (mt5_bars.time // 3600).astype(np.int64)
-    yh_t = (yh.time // 3600).astype(np.int64)
+    bucket = _ALIGN_BUCKET[_args.timeframe]
+    mt5_t = (mt5_bars.time // bucket).astype(np.int64)
+    yh_t = (yh.time // bucket).astype(np.int64)
     common, i1, i2 = np.intersect1d(mt5_t, yh_t, return_indices=True)
     if len(common) < 50:
         return f"Yahoo cross-check: only {len(common)} overlapping hourly bars, skipped."
@@ -82,7 +88,7 @@ def run_one(keyword: str, report_lines: list):
 
     mt5_feed.connect()
     try:
-        bars = mt5_feed.fetch_history(keyword, TIMEFRAME, count=8000)
+        bars = mt5_feed.fetch_history(keyword, _args.timeframe, count=_args.bars)
         symbol = mt5_feed.resolve_symbol(keyword)
         cost = mt5_feed.symbol_cost_info(symbol)
     finally:
@@ -93,8 +99,10 @@ def run_one(keyword: str, report_lines: list):
     cost_frac = cost["spread_price"] / mid if cost["spread_price"] > 0 else FALLBACK_COST_FRAC.get(keyword, 0.0005)
     cost_note = "" if cost["spread_price"] > 0 else " (MT5 reported 0 spread — used a conservative fallback assumption instead)"
 
-    print(f"{n} H1 bars from MT5 symbol {symbol}. Round-turn cost ~{cost_frac*10000:.2f} bps{cost_note}.")
-    report_lines.append(f"- Symbol: `{symbol}` (MT5) — {n} H1 bars\n")
+    print(f"{n} {_args.timeframe} bars from MT5 symbol {symbol}. Round-turn cost ~{cost_frac*10000:.2f} bps{cost_note}.")
+    report_lines.append(f"- Symbol: `{symbol}` (MT5) — {n} {_args.timeframe} bars "
+                         f"({time.strftime('%Y-%m-%d', time.gmtime(bars.time[0]))} to "
+                         f"{time.strftime('%Y-%m-%d', time.gmtime(bars.time[-1]))})\n")
     report_lines.append(f"- Round-turn transaction cost used: {cost_frac*10000:.2f} bps{cost_note}\n")
     report_lines.append(f"- {cross_check_with_yahoo(keyword, bars)}\n")
 
@@ -188,10 +196,19 @@ def interpret(metrics, hit, mc):
 
 
 def main():
+    global _args
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("--timeframe", choices=["M15", "H1", "D1"], default="H1")
+    parser.add_argument("--bars", type=int, default=8000, help="max bars to request from MT5")
+    parser.add_argument("--out-prefix", default="VALIDATION_REPORT",
+                         help="output files: <prefix>_<timeframe>.md and best_configs_<timeframe>.json")
+    _args = parser.parse_args()
+
     report_lines = [
-        "# Validation report — GenomeGAF\n\n",
+        f"# Validation report — GenomeGAF ({_args.timeframe})\n\n",
         f"Generated {time.strftime('%Y-%m-%d %H:%M UTC', time.gmtime())}. "
-        f"Timeframe: {TIMEFRAME}. Development/holdout split: {int(DEV_FRAC*100)}/{int((1-DEV_FRAC)*100)}. "
+        f"Timeframe: {_args.timeframe}. Bar budget: {_args.bars}. "
+        f"Development/holdout split: {int(DEV_FRAC*100)}/{int((1-DEV_FRAC)*100)}. "
         f"Walk-forward CV folds: {CV_FOLDS}. Monte Carlo sims: {MC_SIMS}.\n\n",
         "**Methodology:** for each instrument, the first "
         f"{int(DEV_FRAC*100)}% of history is a development slice used only to pick pipeline parameters via "
@@ -237,9 +254,10 @@ def main():
         "- Signals-only mode is what's implemented — nothing in this repository places live orders.\n"
     )
 
-    with open("VALIDATION_REPORT.md", "w", encoding="utf-8") as f:
+    report_path = f"{_args.out_prefix}_{_args.timeframe}.md"
+    with open(report_path, "w", encoding="utf-8") as f:
         f.writelines(report_lines)
-    print("\nWrote VALIDATION_REPORT.md")
+    print(f"\nWrote {report_path}")
 
     best_configs = {
         r["keyword"]: {
@@ -253,9 +271,10 @@ def main():
         }
         for r in results
     }
-    with open("best_configs.json", "w", encoding="utf-8") as f:
+    config_path = f"best_configs_{_args.timeframe}.json"
+    with open(config_path, "w", encoding="utf-8") as f:
         json.dump(best_configs, f, indent=2, default=lambda x: None if isinstance(x, float) and np.isnan(x) else x)
-    print("Wrote best_configs.json (consumed by live_signal.py)")
+    print(f"Wrote {config_path} (consumed by live_signal.py)")
 
 
 if __name__ == "__main__":

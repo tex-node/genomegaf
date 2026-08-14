@@ -1,0 +1,67 @@
+{
+  "US500": {
+    "window": 20,
+    "atr_period": 14,
+    "horizon": 10,
+    "method": "gasf",
+    "similarity_threshold": 0.95,
+    "min_matches": 5,
+    "max_db_size": 20000,
+    "holdout_sharpe": -3.418250209151416,
+    "hit_rate": 0.4619883040935672,
+    "hit_rate_p_value": 0.32015722236525446,
+    "beats_random_baseline": false
+  },
+  "US100": {
+    "window": 10,
+    "atr_period": 14,
+    "horizon": 5,
+    "method": "gasf",
+    "similarity_threshold": 0.9,
+    "min_matches": 5,
+    "max_db_size": 20000,
+    "holdout_sharpe": -1.0285566867272757,
+    "hit_rate": 0.48691767708998085,
+    "hit_rate_p_value": 0.30032500329088885,
+    "beats_random_baseline": false
+  },
+  "DJIA": {
+    "window": 10,
+    "atr_period": 14,
+    "horizon": 5,
+    "method": "gasf",
+    "similarity_threshold": 0.95,
+    "min_matches": 5,
+    "max_db_size": 20000,
+    "holdout_sharpe": -0.635137836239355,
+    "hit_rate": 0.4163424124513619,
+    "hit_rate_p_value": 0.007312522308237757,
+    "beats_random_baseline": false
+  },
+  "EURUSD": {
+    "window": 20,
+    "atr_period": 14,
+    "horizon": 5,
+    "method": "gasf",
+    "similarity_threshold": 0.95,
+    "min_matches": 5,
+    "max_db_size": 20000,
+    "holdout_sharpe": -4.324900684418988,
+    "hit_rate": 0.4838709677419355,
+    "hit_rate_p_value": 0.7557356175737271,
+    "beats_random_baseline": false
+  },
+  "XAUUSD": {
+    "window": 20,
+    "atr_period": 14,
+    "horizon": 10,
+    "method": "gasf",
+    "similarity_threshold": 0.95,
+    "min_matches": 5,
+    "max_db_size": 20000,
+    "holdout_sharpe": -2.4621100966349636,
+    "hit_rate": 0.5085714285714286,
+    "hit_rate_p_value": 0.8205958397554409,
+    "beats_random_baseline": false
+  }
+}

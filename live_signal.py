@@ -22,18 +22,17 @@ import mt5_feed
 from gaf_indicator import GAFIndicator, GAFIndicatorConfig
 
 DEFAULT_INSTRUMENTS = ["US500", "US100", "DJIA", "EURUSD", "XAUUSD"]
-TIMEFRAME = "H1"
 WARMUP_BARS = 1000
-BEST_CONFIGS_FILE = "best_configs.json"
 DEFAULT_CFG = GAFIndicatorConfig()  # used for any instrument without a validated config
 
 
-def load_best_configs():
-    if not os.path.exists(BEST_CONFIGS_FILE):
-        print(f"(no {BEST_CONFIGS_FILE} found — run run_validation.py first for empirically chosen "
-              f"parameters; using library defaults for now)")
+def load_best_configs(timeframe: str):
+    path = f"best_configs_{timeframe}.json"
+    if not os.path.exists(path):
+        print(f"(no {path} found — run `py run_validation.py --timeframe {timeframe}` first for "
+              f"empirically chosen parameters; using library defaults for now)")
         return {}
-    with open(BEST_CONFIGS_FILE, encoding="utf-8") as f:
+    with open(path, encoding="utf-8") as f:
         raw = json.load(f)
     out = {}
     for kw, c in raw.items():
@@ -49,15 +48,16 @@ def load_best_configs():
 
 
 class Tracker:
-    def __init__(self, keyword: str, cfg: GAFIndicatorConfig):
+    def __init__(self, keyword: str, cfg: GAFIndicatorConfig, timeframe: str):
         self.keyword = keyword
         self.cfg = cfg
+        self.timeframe = timeframe
         self.ind = GAFIndicator(cfg)
         self.last_bar_time = None
         self.next_bar_index = 0
 
     def warmup(self):
-        bars = mt5_feed.fetch_history(self.keyword, TIMEFRAME, count=WARMUP_BARS)
+        bars = mt5_feed.fetch_history(self.keyword, self.timeframe, count=WARMUP_BARS)
         for i in range(len(bars.close)):
             self.ind.on_bar(i, bars.high[i], bars.low[i], bars.close[i])
         self.next_bar_index = len(bars.close)
@@ -66,7 +66,7 @@ class Tracker:
               f"{datetime.fromtimestamp(self.last_bar_time, tz=timezone.utc).isoformat()}")
 
     def poll(self, log_writer):
-        latest = mt5_feed.fetch_history(self.keyword, TIMEFRAME, count=1)
+        latest = mt5_feed.fetch_history(self.keyword, self.timeframe, count=1)
         t = int(latest.time[-1])
         if t == self.last_bar_time:
             return  # no new closed bar yet
@@ -96,6 +96,7 @@ class Tracker:
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--instruments", default=",".join(DEFAULT_INSTRUMENTS))
+    parser.add_argument("--timeframe", choices=["M15", "H1", "D1"], default="H1")
     parser.add_argument("--poll-interval", type=float, default=30.0, help="seconds between MT5 checks")
     parser.add_argument("--log-file", default="signals_log.csv")
     args = parser.parse_args()
@@ -109,8 +110,8 @@ def main():
     acct = mt5_feed.account_summary()
     print(f"Connected to MT5 ({acct['trade_mode']} account on {acct['server']}).")
 
-    best_configs = load_best_configs()
-    trackers = [Tracker(kw, best_configs.get(kw, DEFAULT_CFG)) for kw in instruments]
+    best_configs = load_best_configs(args.timeframe)
+    trackers = [Tracker(kw, best_configs.get(kw, DEFAULT_CFG), args.timeframe) for kw in instruments]
     for t in trackers:
         t.warmup()
 
@@ -120,7 +121,7 @@ def main():
     if new_log:
         log_writer.writerow(["timestamp_utc", "instrument", "close", "direction", "confidence", "n_matches", "usable"])
 
-    print(f"\nPolling every {args.poll_interval}s for new closed {TIMEFRAME} bars. Ctrl+C to stop.\n")
+    print(f"\nPolling every {args.poll_interval}s for new closed {args.timeframe} bars. Ctrl+C to stop.\n")
     try:
         while True:
             for t in trackers:
