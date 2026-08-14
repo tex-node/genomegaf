@@ -1,5 +1,9 @@
 # GAF Pattern-Recognition Indicator — Python Prototype
 
+**Project status: closed, no tradable edge found.** See
+[`CLAUDE.md`](CLAUDE.md) for the final conclusion and what was tested
+before picking this back up.
+
 Implements the pipeline from the blueprint: ATR-normalized returns →
 Gramian Angular Field encoding → flattened fingerprint → rolling
 historical database → cosine-similarity matching → forward-return
