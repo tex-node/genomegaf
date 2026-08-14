@@ -13,7 +13,7 @@ terminal; it does not need or accept your password.
 """
 
 from dataclasses import dataclass
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 
 import numpy as np
 
@@ -182,6 +182,53 @@ def fetch_history_range(symbol_keyword: str, timeframe: str, date_from: datetime
         high=rates["high"].astype(np.float64),
         low=rates["low"].astype(np.float64),
         close=rates["close"].astype(np.float64),
+    )
+
+
+_BAR_SECONDS = {"M1": 60, "M5": 300, "M15": 900, "M30": 1800, "H1": 3600, "H4": 14400, "D1": 86400}
+
+
+def fetch_history_range_chunked(symbol_keyword: str, timeframe: str, date_from: datetime,
+                                 date_to: datetime, max_bars_per_chunk: int = 80_000) -> Bars:
+    """Like fetch_history_range, but splits into multiple calls if the
+    requested span would exceed the terminal's maxbars setting (this
+    account's terminal caps single requests at 100,000 bars — see
+    terminal_info().maxbars — so a wide range on a fine timeframe, e.g.
+    16 months of M5, needs chunking). Chunks are de-duplicated by
+    timestamp at the boundaries and returned as one continuous Bars."""
+    span_seconds = (date_to - date_from).total_seconds()
+    bar_seconds = _BAR_SECONDS[timeframe]
+    est_bars = span_seconds / bar_seconds
+    if est_bars <= max_bars_per_chunk:
+        return fetch_history_range(symbol_keyword, timeframe, date_from, date_to)
+
+    chunk_span = timedelta(seconds=max_bars_per_chunk * bar_seconds)
+    all_times, all_open, all_high, all_low, all_close = [], [], [], [], []
+    cursor = date_from
+    while cursor < date_to:
+        chunk_end = min(cursor + chunk_span, date_to)
+        try:
+            b = fetch_history_range(symbol_keyword, timeframe, cursor, chunk_end)
+            all_times.append(b.time)
+            all_open.append(b.open)
+            all_high.append(b.high)
+            all_low.append(b.low)
+            all_close.append(b.close)
+        except MT5Error:
+            pass  # a chunk with no data (e.g. before the symbol existed) is fine to skip
+        cursor = chunk_end
+
+    if not all_times:
+        raise MT5Error(f"No data for '{symbol_keyword}' ({timeframe}) in {date_from} to {date_to}")
+
+    times = np.concatenate(all_times)
+    times, uniq_idx = np.unique(times, return_index=True)
+    return Bars(
+        time=times,
+        open=np.concatenate(all_open)[uniq_idx],
+        high=np.concatenate(all_high)[uniq_idx],
+        low=np.concatenate(all_low)[uniq_idx],
+        close=np.concatenate(all_close)[uniq_idx],
     )
 
 

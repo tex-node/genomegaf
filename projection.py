@@ -100,3 +100,38 @@ def project(matches, closes: np.ndarray, horizon: int, min_matches: int = 5,
         skew=skew_r,
         raw_returns=returns,
     )
+
+
+def project_resolved(matches, min_matches: int = 5) -> Signal:
+    """
+    Same statistics as project(), for matches that already carry a
+    resolved forward return instead of a (bar_index, close_at_match) pair
+    to look up -- used by multi_source_pattern_db.py, where each record's
+    forward return was precomputed at ingestion time against its own
+    source's price array (see that module for why).
+
+    matches: list of (forward_return, similarity, source_id)
+    """
+    if len(matches) < min_matches:
+        return Signal(0.0, 0.0, 0.0, len(matches), 0.0, 0.0, np.array([m[0] for m in matches]))
+
+    returns = np.array([m[0] for m in matches], dtype=float)
+    mean_r = float(returns.mean())
+    std_r = float(returns.std())
+    skew_r = _skewness(returns)
+
+    snr = abs(mean_r) / (std_r + 1e-9)
+    snr_component = snr / (snr + 1.0)
+    size_component = min(len(returns) / 30.0, 1.0)
+    confidence = snr_component * size_component
+    direction = np.sign(mean_r) * confidence
+
+    return Signal(
+        direction=float(direction),
+        mean_return=mean_r,
+        std_return=std_r,
+        n_matches=len(returns),
+        confidence=float(confidence),
+        skew=skew_r,
+        raw_returns=returns,
+    )

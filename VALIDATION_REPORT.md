@@ -88,20 +88,72 @@ a genuinely independent second holdout period (not just a stricter
 correction on the same one) — that's the actual test of whether this
 replicates or was noise that happened to clear a threshold on one slice.
 
+## Round 3: cross-instrument, cross-timeframe pattern pooling
+
+Tested a bigger hypothesis: does a price-shape's forward outcome
+generalize across markets and timescales, rather than being specific to
+one instrument's own history? Built `multi_source_pattern_db.py`, a
+shared pattern database pooling GAF fingerprints from all 5 instruments
+x 4 timeframes (M5/M15/H1/D1) into one pool of 401,658 fingerprints
+(D1 contributed zero — rank normalization's 252-bar lookback doesn't
+fit in D1's ~208 available dev-period bars), split at one shared
+calendar cutoff (not each source's own fraction, to avoid a later
+instrument's pattern leaking into an earlier instrument's holdout). Each
+instrument's H1 holdout was evaluated two ways against the identical
+frozen pool: **pooled** (search everything) vs **control** (search only
+that instrument's own H1 fingerprints within the same pool).
+
+Four of five instruments showed nothing (p between 0.17 and 0.67).
+**DJIA pooled showed hit rate 53.67% with p=0.0002** — strong enough to
+survive a Bonferroni correction across every hypothesis test run in this
+entire project (26 tests, threshold ~0.0019). But it's a false lead:
+DJIA rallied +10% over the holdout window, and the base rate of positive
+10-bar-forward returns during that period was **53.99%** — meaning a
+trivial always-predict-up strategy with zero pattern matching would have
+scored *higher* than the "significant" pooled result. The binomial
+hit-rate test's 50/50 null is silently wrong whenever the instrument has
+real drift, and pooled mode was net-long on 83% of holdout bars during a
+bull run — that combination alone explains the whole result. Also
+notable independent of any one result: pooling 400K fingerprints in a
+45-dimensional space (window=10) made the 0.90 similarity threshold
+nearly non-selective — pooled mode fired on 83-89% of *all* holdout bars
+vs. 2-3% for same-instrument search, which looks more like cosine
+similarity saturating at that density than genuine rare-pattern
+recurrence. Full detail in `VALIDATION_REPORT_cross_market.md`.
+
+**Read: no evidence of a real cross-market pattern effect.** The one
+statistically significant result decomposes cleanly into "the strategy
+happened to be net-long during a rally," not shape-based prediction —
+and a naive trend-following baseline beat it. This is a clean negative,
+not an inconclusive one.
+
 ## Bottom line
 
-Across 3 timeframes × 5 instruments with the original feature set, and
-H1 with an enhanced feature set (rank normalization + regime filtering),
+Across 3 timeframes × 5 instruments with the original feature set, H1
+with an enhanced feature set (rank normalization + regime filtering),
+and a cross-instrument/cross-timeframe pooled pattern database — all
 with real transaction costs, proper walk-forward parameter selection,
-and significance testing — nothing here clears the bar for live capital
-yet. The enhanced feature set produced the first batch of nominally
-significant results in this project, which is genuinely worth further
-investigation, but they don't survive even a simple correction for
-having run 5 tests, and a second statistical test (the random-direction
-baseline) only agrees on the one result that looks most like a false
-positive (small n, wrong-direction). Encouraging enough to warrant one
-more independent check before either pursuing or discarding it — not
-enough, on its own, to trade.
+and significance testing — **nothing here clears the bar for live
+capital.** Every batch that produced a nominally significant result
+(enhanced-H1's 3-of-5, cross-market's DJIA) failed on closer inspection:
+the enhanced-H1 hits don't survive a Bonferroni correction for their own
+batch size, and the cross-market DJIA hit is fully explained by
+directional drift during the test window — a naive trend-following
+baseline with zero pattern matching beat it. Across the whole project
+(31+ hypothesis tests now), only one result has ever cleared a strict
+whole-project correction, and that one turned out to be a drift
+artifact once checked against the right baseline, not the flat 50/50
+one used elsewhere. That's about the outcome you'd expect from pure
+noise across this many tests, not evidence of a real signal hiding
+somewhere in the parameter space.
+
+If you want to keep exploring, the next moves that would actually add
+information (rather than more parameter search on the same premise):
+different instruments/asset classes entirely, a fundamentally different
+signal construction (not just retuning GAF), or accepting that this
+approach — pattern-shape matching via GAF fingerprints, on these
+instruments, at these timeframes — doesn't have a detectable edge and
+moving on.
 
 See each timeframe report's own "Honest caveats" section for what this
 methodology still doesn't cover (single holdout period per instrument,
