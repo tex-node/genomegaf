@@ -847,6 +847,14 @@
     function step() {
       const end = Math.min(n, i + CHUNK);
       for (; i < end; i++) {
+        // Apply the position decided at bar i-1 to bar i's return BEFORE
+        // updating the position from bar i's own signal — otherwise a
+        // signal computed from bar i's own close gets applied to the
+        // i-1 -> i return, which already happened by the time it's known.
+        if (i > 0) {
+          const barRet = (close[i] - close[i - 1]) / close[i - 1];
+          equity.push(equity[equity.length - 1] * (1 + position * barRet));
+        }
         const sig = ind.onBar(i, high[i], low[i], close[i]);
         if (sig) {
           signals.push(sig);
@@ -856,10 +864,6 @@
         } else {
           confidences.push(0);
           directions.push(0);
-        }
-        if (i > 0) {
-          const barRet = (close[i] - close[i - 1]) / close[i - 1];
-          equity.push(equity[equity.length - 1] * (1 + position * barRet));
         }
       }
       $('progressBar').style.width = `${Math.round((100 * i) / n)}%`;

@@ -46,7 +46,16 @@ class GAFIndicator:
         self.db = PatternDB(fingerprint_len=self._fp_len, max_size=self.cfg.max_db_size)
         self._norm_cache = None  # recomputed lazily each bar (see note below)
 
-    def on_bar(self, bar_index: int, high: float, low: float, close: float) -> Signal | None:
+    def on_bar(self, bar_index: int, high: float, low: float, close: float, learn: bool = True) -> Signal | None:
+        """
+        learn=False freezes the pattern DB: the bar is still used to update
+        the rolling normalization/ATR state (needed for continuity), and
+        still queried against whatever's already in the DB, but its
+        fingerprint is NOT added. Used for walk-forward validation, where
+        a DB trained only on a past period must be evaluated against a
+        strictly later, unseen period without leaking test-period patterns
+        into the matcher.
+        """
         self.high.append(high)
         self.low.append(low)
         self.close.append(close)
@@ -80,5 +89,6 @@ class GAFIndicator:
         )
         signal = project(matches, c, horizon=self.cfg.horizon, min_matches=self.cfg.min_matches)
 
-        self.db.add(fp, bar_index=bar_index, close=close)
+        if learn:
+            self.db.add(fp, bar_index=bar_index, close=close)
         return signal

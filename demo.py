@@ -59,6 +59,14 @@ def run_backtest(high=None, low=None, close=None):
     position = 0.0
 
     for i in range(len(close)):
+        # Apply the PREVIOUS bar's decided position to this bar's return
+        # before updating the position from this bar's signal — otherwise
+        # a signal computed using bar i's own close gets applied to the
+        # i-1 -> i return, which already happened by the time it's known.
+        if i > 0:
+            bar_ret = (close[i] - close[i - 1]) / close[i - 1]
+            equity.append(equity[-1] * (1 + position * bar_ret))
+
         sig = ind.on_bar(i, high[i], low[i], close[i])
         if sig is not None:
             signals.append(sig)
@@ -68,10 +76,6 @@ def run_backtest(high=None, low=None, close=None):
         else:
             confidences.append(0.0)
             directions.append(0.0)
-
-        if i > 0:
-            bar_ret = (close[i] - close[i - 1]) / close[i - 1]
-            equity.append(equity[-1] * (1 + position * bar_ret))
 
     print(f"Total bars: {len(close)}")
     print(f"Bars with a live signal: {sum(1 for s in signals)}")

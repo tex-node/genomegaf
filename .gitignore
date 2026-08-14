@@ -1,3 +1,5 @@
 .claude/settings.local.json
 __pycache__/
 *.pyc
+validation_run.log
+signals_log.csv
