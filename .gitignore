@@ -1,9 +1,0 @@
-.claude/settings.local.json
-__pycache__/
-*.pyc
-validation_run*.log
-cross_market_run.log
-TEST_REPORT_*.md
-TEST_cross_market.md
-signals_log.csv
-v2/
