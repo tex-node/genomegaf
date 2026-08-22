@@ -1,9 +1,10 @@
-"""T4.4A -- external cross-market matched-control aggregator.
+"""T4.4A -- external cross-market matched-control research utilities.
 
-Offline diagnostic research tool only. Parses T44C records emitted by
-the frozen Pine T4.4 matched-control experiment and produces a
-descriptive, non-inferential cross-market evidence report. Does not
-modify, gate, or feed back into any Pine model logic.
+Offline diagnostic research tooling only. Parses T44C records emitted by
+the frozen Pine T4.4 matched-control experiment, produces descriptive
+cross-market evidence reports, and preserves successive reports in an
+append-only T4.4A.1 longitudinal history. Does not modify, gate, or feed
+back into any Pine model logic.
 """
 
-__version__ = "1.0.0"
+__version__ = "1.1.0"
