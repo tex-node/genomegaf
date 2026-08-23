@@ -113,13 +113,10 @@ def _read_report(report_dir: Path) -> tuple[dict, list[dict]]:
     }
 
     # Keep verdict provenance deterministic without importing report.py and
-    # creating a circular dependency. The report itself is authoritative.
+    # creating a circular dependency. The report itself is authoritative:
+    # find the "## Research Verdict" heading and take the first bold-only
+    # line below it (report.py always renders the verdict as "**LABEL**").
     verdict = "UNKNOWN"
-    for line in report_path.read_text(encoding="utf-8").splitlines():
-        if line.startswith("**") and line.endswith("**") and "Research Verdict" not in line:
-            # The first bold-only line after the heading is the current report verdict.
-            # Restrict the search to the tail of the document below the heading.
-            pass
     text = report_path.read_text(encoding="utf-8")
     marker = "## Research Verdict"
     if marker in text:
@@ -199,7 +196,13 @@ def append_checkpoint(report_dir: Path, store_dir: Path, label: str) -> dict:
     captured = datetime.now(timezone.utc).isoformat()
     checkpoint.update({"checkpoint": label, "captured_at_utc": captured})
     checkpoint_row = pd.DataFrame([checkpoint], columns=CHECKPOINT_COLUMNS)
-    checkpoints = pd.concat([checkpoints, checkpoint_row], ignore_index=True)
+    # Concatenating onto the empty, all-NA placeholder frame from _load_csv
+    # triggers a pandas FutureWarning about dtype inference changing; the
+    # store is only ever empty on the very first checkpoint, so just take
+    # the new row directly in that case instead of concatenating onto it.
+    checkpoints = checkpoint_row if checkpoints.empty else pd.concat(
+        [checkpoints, checkpoint_row], ignore_index=True
+    )
 
     new_sources = []
     for row in source_rows:
@@ -207,8 +210,9 @@ def append_checkpoint(report_dir: Path, store_dir: Path, label: str) -> dict:
         row.update({"checkpoint": label, "captured_at_utc": captured})
         new_sources.append(row)
     if new_sources:
-        sources = pd.concat(
-            [sources, pd.DataFrame(new_sources, columns=SOURCE_COLUMNS)], ignore_index=True
+        new_sources_df = pd.DataFrame(new_sources, columns=SOURCE_COLUMNS)
+        sources = new_sources_df if sources.empty else pd.concat(
+            [sources, new_sources_df], ignore_index=True
         )
 
     checkpoints.to_csv(checkpoints_path, index=False)

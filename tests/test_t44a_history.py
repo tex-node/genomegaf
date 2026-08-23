@@ -6,6 +6,11 @@ from pathlib import Path
 import pandas as pd
 
 from research.t44a.history import append_checkpoint
+from research.t44a.parser import load_records
+from research.t44a.aggregate import dedupe_snapshots, validate_semantics, add_derived_fields
+from research.t44a.report import write_outputs
+
+FIXTURE = Path(__file__).parent / "fixtures" / "sample_t44c.txt"
 
 
 class T44AHistoryTests(unittest.TestCase):
@@ -88,6 +93,40 @@ class T44AHistoryTests(unittest.TestCase):
             report.mkdir()
             with self.assertRaises(ValueError):
                 append_checkpoint(report, root / "history", "REAL-1")
+
+    def test_real_t44a_report_output_is_schema_compatible(self):
+        """Integration check: feeds a report produced by the actual T4.4A
+        pipeline (parser -> aggregate -> report.write_outputs) into
+        append_checkpoint, rather than a hand-built fixture. This is the
+        check that would have caught 04_side_source_summary.csv only ever
+        containing B_BAND/B_DIV/S_BAND/S_DIV rows and never the pooled
+        BAND/DIV rows the 'BAND vs DIV Through Time' section depends on."""
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            report_dir = root / "report"
+            records, hashes = load_records([str(FIXTURE)])
+            dedupe_snapshots(records)
+            validate_semantics(records)
+            add_derived_fields(records)
+            write_outputs(records, report_dir, [str(FIXTURE)], hashes)
+
+            store = root / "history"
+            result = append_checkpoint(report_dir, store, "REAL-1")
+            self.assertEqual(result["status"], "APPENDED")
+
+            sources = pd.read_csv(store / "02_source_trend.csv")
+            groups_present = set(sources["group"].astype(str))
+            # The pooled, side-independent BAND/DIV comparison must exist as
+            # data -- not just the four SIDE_SOURCE combinations -- since
+            # that's the whole point of "BAND vs DIV Through Time".
+            self.assertIn("BAND", groups_present)
+            self.assertIn("DIV", groups_present)
+            for expected in ("B_BAND", "B_DIV", "S_BAND", "S_DIV"):
+                self.assertIn(expected, groups_present)
+
+            history_text = (store / "03_history.md").read_text(encoding="utf-8")
+            self.assertIn("| REAL-1 | BAND |", history_text)
+            self.assertIn("| REAL-1 | DIV |", history_text)
 
 
 if __name__ == "__main__":

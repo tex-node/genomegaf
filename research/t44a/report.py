@@ -115,7 +115,14 @@ def write_outputs(records: list, out_dir: Path, input_paths: list, file_hashes: 
     overall = overall_summary(df)
 
     cells.to_csv(out_dir / "03_cell_summary.csv", index=False)
-    side_source.to_csv(out_dir / "04_side_source_summary.csv", index=False)
+    # Includes the SIDE_SOURCE rows (B_BAND/B_DIV/S_BAND/S_DIV) plus the
+    # pooled SOURCE rows (BAND/DIV) and SIDE rows (BUY/SELL) -- the pooled
+    # BAND-vs-DIV-regardless-of-side comparison only exists here, not in
+    # the markdown report, and downstream consumers (e.g. T4.4A.1's
+    # longitudinal history) depend on it being present as data, not prose.
+    pd.concat([side_source, sources, sides], ignore_index=True).to_csv(
+        out_dir / "04_side_source_summary.csv", index=False
+    )
     classes.to_csv(out_dir / "05_asset_class_summary.csv", index=False)
     markets.to_csv(out_dir / "06_market_summary.csv", index=False)
     overall.to_csv(out_dir / "07_overall_summary.csv", index=False)
