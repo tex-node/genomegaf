@@ -1,0 +1,18 @@
+{
+  "schema": "T4.4A.1-history-v1",
+  "updated_at_utc": "2026-08-23T03:29:13.774257+00:00",
+  "checkpoint_count": 1,
+  "checkpoints": [
+    {
+      "checkpoint": "REAL-1",
+      "source_report_sha256": "55a9d400cded84faf5445292001d4552e08ffd45ddcf71ff386e56c42c909f22",
+      "source_manifest_sha256": "2dc3bf298e4e20f6388c81a42c8e430b4ba5bfb1b5cce09a72526c1e87382f8f"
+    }
+  ],
+  "policy": {
+    "append_only": true,
+    "no_threshold_tuning": true,
+    "no_model_feedback": true,
+    "non_inferential": true
+  }
+}
